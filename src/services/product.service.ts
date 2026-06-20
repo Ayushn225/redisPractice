@@ -10,6 +10,11 @@ import redisClient from "../redis/client";
 const PRODUCTS_ALL_CACHE_KEY = "products:all";
 const PRODUCTS_TTL_SECONDS =  60;
 
+async function deleteProductsAllCache(): Promise<void>{
+  await redisClient.del(PRODUCTS_ALL_CACHE_KEY);
+  console.log("all products cache deleted");
+}
+
 function mapProductRow(row: ProductRow): Product {
   return {
     id: row.id,
@@ -75,7 +80,7 @@ export async function getAllProducts(filters: {
   }
 }
 
-export async function getProductById(id: number): Promise<Product | null> {
+export async function fetchProductById(id: number): Promise<Product | null> {
   const result = await pool.query<ProductRow>(
     "SELECT * FROM products WHERE id = $1",
     [id]
@@ -88,6 +93,25 @@ export async function getProductById(id: number): Promise<Product | null> {
   return mapProductRow(result.rows[0]);
 }
 
+export async function getProductById(id: number): Promise<Product | null> {
+  const keyword = `product:id:${id}`;
+  const cachedProduct = await redisClient.get(keyword);
+  if(cachedProduct){
+    console.log("by id cache hit");
+    return JSON.parse(cachedProduct) as Product;
+  }
+
+  console.log("by id cache miss");
+  const result = await fetchProductById(id);
+  if(!result){
+    console.log("no product");
+    return null;
+  }
+  await redisClient.setEx(keyword, PRODUCTS_TTL_SECONDS, JSON.stringify(result));
+
+  return result;
+}
+
 export async function createProduct(
   input: CreateProductInput
 ): Promise<Product> {
@@ -98,7 +122,11 @@ export async function createProduct(
     [input.name, input.description, input.price, input.category, input.stock]
   );
 
-  return mapProductRow(result.rows[0]);
+  const newProduct =  mapProductRow(result.rows[0]);
+
+  await deleteProductsAllCache();
+
+  return newProduct;
 }
 
 export async function updateProduct(
