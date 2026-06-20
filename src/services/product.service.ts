@@ -5,6 +5,10 @@ import {
   CreateProductInput,
   UpdateProductInput,
 } from "../types/product";
+import redisClient from "../redis/client";
+
+const PRODUCTS_ALL_CACHE_KEY = "products:all";
+const PRODUCTS_TTL_SECONDS =  60;
 
 function mapProductRow(row: ProductRow): Product {
   return {
@@ -19,7 +23,7 @@ function mapProductRow(row: ProductRow): Product {
   };
 }
 
-export async function getAllProducts(filters: {
+export async function fetchAllProducts(filters: {
   category?: string;
   search?: string;
 }): Promise<Product[]> {
@@ -40,6 +44,35 @@ export async function getAllProducts(filters: {
 
   const result = await pool.query<ProductRow>(query, values);
   return result.rows.map(mapProductRow);
+}
+
+export async function getAllProducts(filters: {
+  category?: string;
+  search?: string;
+}): Promise<Product[]> {
+
+  const hasFilters = Boolean(filters?.category || filters?.search)
+  if(hasFilters){
+    console.log("cache bypass");
+    return fetchAllProducts(filters);
+  }
+
+  const cacheProducts = await redisClient.get(PRODUCTS_ALL_CACHE_KEY);
+
+  if(!cacheProducts){
+
+    console.log("cache miss");
+    const products = await fetchAllProducts(filters);
+
+    await redisClient.setEx(PRODUCTS_ALL_CACHE_KEY, PRODUCTS_TTL_SECONDS, JSON.stringify(products));
+
+    return products;
+
+  }else{
+    console.log("cache hit");
+
+    return JSON.parse(cacheProducts) as Product[];
+  }
 }
 
 export async function getProductById(id: number): Promise<Product | null> {
