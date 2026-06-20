@@ -15,6 +15,12 @@ async function deleteProductsAllCache(): Promise<void>{
   console.log("all products cache deleted");
 }
 
+async function deleteProductById(id: number): Promise<void>{
+  const keyword = `product:id:${id}`;
+  await redisClient.del(keyword);
+  console.log("deleted by id successfully");
+}
+
 function mapProductRow(row: ProductRow): Product {
   return {
     id: row.id,
@@ -157,5 +163,11 @@ export async function updateProduct(
     [name, description, price, category, stock, id]
   );
 
-  return mapProductRow(result.rows[0]);
+  const updatedProduct = mapProductRow(result.rows[0]);
+
+  await deleteProductsAllCache();
+
+  await deleteProductById(id);
+
+  return updatedProduct;
 }
